@@ -91,8 +91,8 @@ pub fn attr3d_array8(
 }
 
 pub fn vec_as_mut_ptr<T, O, F>(values: Vec<T>, map: F) -> *mut O
-    where
-        F: FnMut(T) -> O,
+where
+    F: FnMut(T) -> O,
 {
     let mut values = values.into_iter().map(map).collect::<Vec<O>>();
     let pointer = values.as_mut_ptr();
@@ -307,20 +307,20 @@ impl EventProperty {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PlaybackState {
     Playing,
-    Ustaining,
-    Opped,
-    Rting,
-    Opping,
+    Sustaining,
+    Stopped,
+    Starting,
+    Stopping,
 }
 
 impl From<PlaybackState> for ffi::FMOD_STUDIO_PLAYBACK_STATE {
     fn from(value: PlaybackState) -> ffi::FMOD_STUDIO_PLAYBACK_STATE {
         match value {
             PlaybackState::Playing => ffi::FMOD_STUDIO_PLAYBACK_PLAYING,
-            PlaybackState::Ustaining => ffi::FMOD_STUDIO_PLAYBACK_SUSTAINING,
-            PlaybackState::Opped => ffi::FMOD_STUDIO_PLAYBACK_STOPPED,
-            PlaybackState::Rting => ffi::FMOD_STUDIO_PLAYBACK_STARTING,
-            PlaybackState::Opping => ffi::FMOD_STUDIO_PLAYBACK_STOPPING,
+            PlaybackState::Sustaining => ffi::FMOD_STUDIO_PLAYBACK_SUSTAINING,
+            PlaybackState::Stopped => ffi::FMOD_STUDIO_PLAYBACK_STOPPED,
+            PlaybackState::Starting => ffi::FMOD_STUDIO_PLAYBACK_STARTING,
+            PlaybackState::Stopping => ffi::FMOD_STUDIO_PLAYBACK_STOPPING,
         }
     }
 }
@@ -329,10 +329,10 @@ impl PlaybackState {
     pub fn from(value: ffi::FMOD_STUDIO_PLAYBACK_STATE) -> Result<PlaybackState, Error> {
         match value {
             ffi::FMOD_STUDIO_PLAYBACK_PLAYING => Ok(PlaybackState::Playing),
-            ffi::FMOD_STUDIO_PLAYBACK_SUSTAINING => Ok(PlaybackState::Ustaining),
-            ffi::FMOD_STUDIO_PLAYBACK_STOPPED => Ok(PlaybackState::Opped),
-            ffi::FMOD_STUDIO_PLAYBACK_STARTING => Ok(PlaybackState::Rting),
-            ffi::FMOD_STUDIO_PLAYBACK_STOPPING => Ok(PlaybackState::Opping),
+            ffi::FMOD_STUDIO_PLAYBACK_SUSTAINING => Ok(PlaybackState::Sustaining),
+            ffi::FMOD_STUDIO_PLAYBACK_STOPPED => Ok(PlaybackState::Stopped),
+            ffi::FMOD_STUDIO_PLAYBACK_STARTING => Ok(PlaybackState::Starting),
+            ffi::FMOD_STUDIO_PLAYBACK_STOPPING => Ok(PlaybackState::Stopping),
             _ => Err(err_enum!("FMOD_STUDIO_PLAYBACK_STATE", value)),
         }
     }
@@ -5325,7 +5325,7 @@ pub struct DspParameterFloatMappingPiecewiseLinear {
 }
 
 impl TryFrom<ffi::FMOD_DSP_PARAMETER_FLOAT_MAPPING_PIECEWISE_LINEAR>
-for DspParameterFloatMappingPiecewiseLinear
+    for DspParameterFloatMappingPiecewiseLinear
 {
     type Error = Error;
     fn try_from(
@@ -5342,7 +5342,7 @@ for DspParameterFloatMappingPiecewiseLinear
 }
 
 impl Into<ffi::FMOD_DSP_PARAMETER_FLOAT_MAPPING_PIECEWISE_LINEAR>
-for DspParameterFloatMappingPiecewiseLinear
+    for DspParameterFloatMappingPiecewiseLinear
 {
     fn into(self) -> ffi::FMOD_DSP_PARAMETER_FLOAT_MAPPING_PIECEWISE_LINEAR {
         ffi::FMOD_DSP_PARAMETER_FLOAT_MAPPING_PIECEWISE_LINEAR {
@@ -9503,13 +9503,23 @@ impl Bank {
             }
         }
     }
-    pub fn get_event_list(&self, capacity: i32) -> Result<(EventDescription, i32), Error> {
+    pub fn get_event_list(&self) -> Result<Vec<EventDescription>, Error> {
+        let event_count = self.get_event_count()?;
+        let mut array = vec![EventDescription::from(null_mut()); event_count as usize];
+
         unsafe {
-            let mut array = null_mut();
-            let mut count = i32::default();
-            match ffi::FMOD_Studio_Bank_GetEventList(self.pointer, &mut array, capacity, &mut count)
-            {
-                ffi::FMOD_OK => Ok((EventDescription::from(array), count)),
+            let mut events_written = i32::default();
+
+            match ffi::FMOD_Studio_Bank_GetEventList(
+                self.pointer,
+                array.as_mut_ptr() as _,
+                event_count,
+                &mut events_written,
+            ) {
+                ffi::FMOD_OK => {
+                    assert!(events_written == event_count);
+                    Ok(array)
+                }
                 error => Err(err_fmod!("FMOD_Studio_Bank_GetEventList", error)),
             }
         }
@@ -9999,6 +10009,7 @@ impl CommandReplay {
 }
 
 #[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
 pub struct EventDescription {
     pointer: *mut ffi::FMOD_STUDIO_EVENTDESCRIPTION,
 }
