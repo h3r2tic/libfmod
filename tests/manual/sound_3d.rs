@@ -1,5 +1,5 @@
-use libfmod::{Error, System, Vector};
 use libfmod::ffi::{FMOD_3D, FMOD_3D_LINEARROLLOFF, FMOD_DEFAULT, FMOD_INIT_NORMAL};
+use libfmod::{Error, System, Vector};
 
 #[test]
 fn test_3d_sound() -> Result<(), Error> {
@@ -29,7 +29,7 @@ fn test_3d_sound() -> Result<(), Error> {
     };
     while channel.is_playing()? {
         position.x += velocity.x;
-        system.set_3d_listener_attributes(0, Some(position.clone()), Some(velocity.clone()), None, None)?;
+        system.set_3d_listener_attributes(0, Some(position), Some(velocity), None, None)?;
         system.update()?;
     }
 
@@ -63,8 +63,8 @@ fn test_multiple_listeners() -> Result<(), Error> {
         z: 0.0,
     };
     while channel.is_playing()? {
-        system.set_3d_listener_attributes(0, None, Some(a.clone()), None, None)?;
-        system.set_3d_listener_attributes(1, None, Some(b.clone()), None, None)?;
+        system.set_3d_listener_attributes(0, None, Some(a), None, None)?;
+        system.set_3d_listener_attributes(1, None, Some(b), None, None)?;
         system.update()?;
     }
 
@@ -76,12 +76,24 @@ fn test_sound_custom_rolloff() -> Result<(), Error> {
     let system = System::create()?;
     system.init(512, FMOD_INIT_NORMAL, None)?;
     let sound = system.create_sound("./data/heartbeat.ogg", FMOD_DEFAULT, None)?;
-    let curve = vec![
-        Vector { x: 0.0, y: 0.75, z: 0.0 },
-        Vector { x: 1.0, y: 0.25, z: 0.0 },
-        Vector { x: 2.0, y: 0.25, z: 0.0 },
+    static mut CURVE: [Vector; 3] = [
+        Vector {
+            x: 0.0,
+            y: 0.75,
+            z: 0.0,
+        },
+        Vector {
+            x: 1.0,
+            y: 0.25,
+            z: 0.0,
+        },
+        Vector {
+            x: 2.0,
+            y: 0.25,
+            z: 0.0,
+        },
     ];
-    sound.set_3d_custom_rolloff(curve)?;
+    sound.set_3d_custom_rolloff(unsafe { &mut CURVE })?;
     let rolloff = sound.get_3d_custom_rolloff()?;
     println!("rolloff: {:?}", rolloff);
     system.release()
@@ -93,12 +105,24 @@ fn test_channel_custom_rolloff() -> Result<(), Error> {
     system.init(512, FMOD_INIT_NORMAL, None)?;
     let sound = system.create_sound("./data/heartbeat.ogg", FMOD_DEFAULT, None)?;
     let channel = system.play_sound(sound, None, false)?;
-    let curve = vec![
-        Vector { x: 0.0, y: 0.75, z: 0.0 },
-        Vector { x: 1.0, y: 0.25, z: 0.0 },
-        Vector { x: 2.0, y: 0.25, z: 0.0 },
+    static mut CURVE: [Vector; 3] = [
+        Vector {
+            x: 0.0,
+            y: 0.75,
+            z: 0.0,
+        },
+        Vector {
+            x: 1.0,
+            y: 0.25,
+            z: 0.0,
+        },
+        Vector {
+            x: 2.0,
+            y: 0.25,
+            z: 0.0,
+        },
     ];
-    channel.set_3d_custom_rolloff(curve)?;
+    channel.set_3d_custom_rolloff(unsafe { &mut CURVE })?;
     let rolloff = channel.get_3d_custom_rolloff()?;
     println!("rolloff: {:?}", rolloff);
     system.release()

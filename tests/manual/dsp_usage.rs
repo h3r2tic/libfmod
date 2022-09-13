@@ -1,6 +1,7 @@
-use libfmod::{DspConnectionType, DspFft, DspParameterFft, DspType, Error, System};
-use libfmod::ffi;
-use libfmod::ffi::{FMOD_CHANNELCONTROL_DSP_HEAD, FMOD_CHANNELCONTROL_DSP_TAIL, FMOD_DEFAULT, FMOD_INIT_NORMAL};
+use libfmod::ffi::{
+    FMOD_CHANNELCONTROL_DSP_HEAD, FMOD_CHANNELCONTROL_DSP_TAIL, FMOD_DEFAULT, FMOD_INIT_NORMAL,
+};
+use libfmod::{DspConnectionType, DspParameterFft, DspType, Error, System};
 
 /// This unit produces an echo on the sound and fades out at the desired rate.
 #[test]
@@ -88,10 +89,7 @@ fn test_output_pan_matrix() -> Result<(), Error> {
     let head = channel.get_dsp(FMOD_CHANNELCONTROL_DSP_HEAD)?;
 
     let mut matrix = [
-        0.0, 0.0, 0.0, 0.0,
-        0.0, 0.0, 0.0, 0.0,
-        1.0, 0.0, 0.0, 0.0,
-        0.0, 1.0, 0.0, 0.0
+        0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0,
     ];
 
     let (_, connection) = head.get_output(0)?;

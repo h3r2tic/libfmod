@@ -1,4 +1,12 @@
-#![allow(unused_unsafe)]
+#![allow(
+    unused_unsafe,
+    clippy::not_unsafe_ptr_arg_deref,
+    clippy::derivable_impls,
+    clippy::unnecessary_cast,
+    clippy::derive_partial_eq_without_eq,
+    clippy::from_over_into,
+    clippy::too_many_arguments
+)]
 
 use std::ffi::{c_void, CStr, CString, IntoStringError, NulError};
 use std::mem::size_of;
@@ -56,13 +64,22 @@ macro_rules! to_string {
         }
     };
 }
+macro_rules! try_to_vec {
+    ($ ptr : expr , $ length : expr , $ closure : expr) => {
+        slice::from_raw_parts($ptr, $length as usize)
+            .iter()
+            .copied()
+            .map($closure)
+            .collect::<Result<Vec<_>, Error>>()
+    };
+}
 macro_rules! to_vec {
     ($ ptr : expr , $ length : expr , $ closure : expr) => {
         slice::from_raw_parts($ptr, $length as usize)
-            .to_vec()
-            .into_iter()
+            .iter()
+            .copied()
             .map($closure)
-            .collect::<Result<Vec<_>, Error>>()
+            .collect::<Vec<_>>()
     };
     ($ ptr : expr , $ length : expr) => {
         slice::from_raw_parts($ptr, $length as usize).to_vec()
@@ -83,11 +100,6 @@ macro_rules! from_bool {
             _ => 0,
         }
     };
-}
-pub fn attr3d_array8(
-    values: Vec<Attributes3d>,
-) -> [Attributes3d; ffi::FMOD_MAX_LISTENERS as usize] {
-    values.try_into().expect("slice with incorrect length")
 }
 
 pub fn vec_as_mut_ptr<T, O, F>(values: Vec<T>, map: F) -> *mut O
@@ -4270,68 +4282,8 @@ impl Into<ffi::FMOD_ASYNCREADINFO> for AsyncReadInfo {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Vector {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl TryFrom<ffi::FMOD_VECTOR> for Vector {
-    type Error = Error;
-    fn try_from(value: ffi::FMOD_VECTOR) -> Result<Self, Self::Error> {
-        unsafe {
-            Ok(Vector {
-                x: value.x,
-                y: value.y,
-                z: value.z,
-            })
-        }
-    }
-}
-
-impl Into<ffi::FMOD_VECTOR> for Vector {
-    fn into(self) -> ffi::FMOD_VECTOR {
-        ffi::FMOD_VECTOR {
-            x: self.x,
-            y: self.y,
-            z: self.z,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Attributes3d {
-    pub position: Vector,
-    pub velocity: Vector,
-    pub forward: Vector,
-    pub up: Vector,
-}
-
-impl TryFrom<ffi::FMOD_3D_ATTRIBUTES> for Attributes3d {
-    type Error = Error;
-    fn try_from(value: ffi::FMOD_3D_ATTRIBUTES) -> Result<Self, Self::Error> {
-        unsafe {
-            Ok(Attributes3d {
-                position: Vector::try_from(value.position)?,
-                velocity: Vector::try_from(value.velocity)?,
-                forward: Vector::try_from(value.forward)?,
-                up: Vector::try_from(value.up)?,
-            })
-        }
-    }
-}
-
-impl Into<ffi::FMOD_3D_ATTRIBUTES> for Attributes3d {
-    fn into(self) -> ffi::FMOD_3D_ATTRIBUTES {
-        ffi::FMOD_3D_ATTRIBUTES {
-            position: self.position.into(),
-            velocity: self.velocity.into(),
-            forward: self.forward.into(),
-            up: self.up.into(),
-        }
-    }
-}
+pub type Vector = ffi::FMOD_VECTOR;
+pub type Attributes3d = ffi::FMOD_3D_ATTRIBUTES;
 
 #[derive(Debug, Clone)]
 pub struct Guid {
@@ -4431,12 +4383,12 @@ impl TryFrom<ffi::FMOD_ADVANCEDSETTINGS> for AdvancedSettings {
                 max_fadpcm_codecs: value.maxFADPCMCodecs,
                 max_pcm_codecs: value.maxPCMCodecs,
                 asio_num_channels: value.ASIONumChannels,
-                asio_channel_list: to_vec!(
+                asio_channel_list: try_to_vec!(
                     value.ASIOChannelList,
                     value.ASIONumChannels,
                     |ptr| to_string!(ptr)
                 )?,
-                asio_speaker_list: to_vec!(
+                asio_speaker_list: try_to_vec!(
                     value.ASIOSpeakerList,
                     value.ASIONumChannels,
                     Speaker::from
@@ -5232,7 +5184,7 @@ impl TryFrom<ffi::FMOD_OUTPUT_OBJECT3DINFO> for OutputObject3Dinfo {
             Ok(OutputObject3Dinfo {
                 buffer: to_vec!(value.buffer, value.bufferlength),
                 bufferlength: value.bufferlength,
-                position: Vector::try_from(value.position)?,
+                position: value.position,
                 gain: value.gain,
                 spread: value.spread,
                 priority: value.priority,
@@ -5246,7 +5198,7 @@ impl Into<ffi::FMOD_OUTPUT_OBJECT3DINFO> for OutputObject3Dinfo {
         ffi::FMOD_OUTPUT_OBJECT3DINFO {
             buffer: self.buffer.as_ptr() as *mut _,
             bufferlength: self.bufferlength,
-            position: self.position.into(),
+            position: self.position,
             gain: self.gain,
             spread: self.spread,
             priority: self.priority,
@@ -5271,7 +5223,7 @@ impl TryFrom<ffi::FMOD_DSP_BUFFER_ARRAY> for DspBufferArray {
                 numbuffers: value.numbuffers,
                 buffernumchannels: to_vec!(value.buffernumchannels, value.numbuffers),
                 bufferchannelmask: to_vec!(value.bufferchannelmask, value.numbuffers),
-                buffers: to_vec!(value.buffers, value.numbuffers, |ptr| Ok(*ptr))?,
+                buffers: to_vec!(value.buffers, value.numbuffers, |ptr| *ptr),
                 speakermode: SpeakerMode::from(value.speakermode)?,
             })
         }
@@ -5565,32 +5517,7 @@ impl Into<ffi::FMOD_DSP_PARAMETER_OVERALLGAIN> for DspParameterOverallgain {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct DspParameterAttributes3d {
-    pub relative: Attributes3d,
-    pub absolute: Attributes3d,
-}
-
-impl TryFrom<ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES> for DspParameterAttributes3d {
-    type Error = Error;
-    fn try_from(value: ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES) -> Result<Self, Self::Error> {
-        unsafe {
-            Ok(DspParameterAttributes3d {
-                relative: Attributes3d::try_from(value.relative)?,
-                absolute: Attributes3d::try_from(value.absolute)?,
-            })
-        }
-    }
-}
-
-impl Into<ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES> for DspParameterAttributes3d {
-    fn into(self) -> ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES {
-        ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES {
-            relative: self.relative.into(),
-            absolute: self.absolute.into(),
-        }
-    }
-}
+pub type DspParameterAttributes3d = ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES;
 
 #[derive(Debug, Clone)]
 pub struct DspParameterAttributes3dMulti {
@@ -5600,22 +5527,15 @@ pub struct DspParameterAttributes3dMulti {
     pub absolute: Attributes3d,
 }
 
-impl TryFrom<ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI> for DspParameterAttributes3dMulti {
-    type Error = Error;
-    fn try_from(value: ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI) -> Result<Self, Self::Error> {
+impl From<ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI> for DspParameterAttributes3dMulti {
+    fn from(value: ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI) -> Self {
         unsafe {
-            Ok(DspParameterAttributes3dMulti {
-                numlisteners: value.numlisteners,
-                relative: attr3d_array8(
-                    value
-                        .relative
-                        .map(Attributes3d::try_from)
-                        .into_iter()
-                        .collect::<Result<Vec<Attributes3d>, Error>>()?,
-                ),
+            DspParameterAttributes3dMulti {
+                numlisteners: value.numlisteners as _,
+                relative: value.relative,
                 weight: value.weight,
-                absolute: Attributes3d::try_from(value.absolute)?,
-            })
+                absolute: value.absolute,
+            }
         }
     }
 }
@@ -5623,10 +5543,10 @@ impl TryFrom<ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI> for DspParameterAttribu
 impl Into<ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI> for DspParameterAttributes3dMulti {
     fn into(self) -> ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI {
         ffi::FMOD_DSP_PARAMETER_3DATTRIBUTES_MULTI {
-            numlisteners: self.numlisteners,
-            relative: self.relative.map(Attributes3d::into),
+            numlisteners: self.numlisteners as _,
+            relative: self.relative,
             weight: self.weight,
-            absolute: self.absolute.into(),
+            absolute: self.absolute,
         }
     }
 }
@@ -5688,16 +5608,16 @@ pub struct DspParameterFft {
     pub spectrum: Vec<Vec<f32>>,
 }
 
-impl TryFrom<ffi::FMOD_DSP_PARAMETER_FFT> for DspParameterFft {
-    type Error = Error;
-    fn try_from(value: ffi::FMOD_DSP_PARAMETER_FFT) -> Result<Self, Self::Error> {
+impl From<ffi::FMOD_DSP_PARAMETER_FFT> for DspParameterFft {
+    fn from(value: ffi::FMOD_DSP_PARAMETER_FFT) -> Self {
         unsafe {
-            Ok(DspParameterFft {
+            DspParameterFft {
                 length: value.length,
-                spectrum: to_vec!(value.spectrum.as_ptr(), value.numchannels, |ptr| Ok(
-                    to_vec!(ptr, value.length)
-                ))?,
-            })
+                spectrum: to_vec!(value.spectrum.as_ptr(), value.numchannels, |ptr| to_vec!(
+                    ptr,
+                    value.length
+                )),
+            }
         }
     }
 }
@@ -5709,7 +5629,7 @@ impl TryFrom<Dsp> for DspParameterFft {
             Ok(DspType::Fft) => {
                 let (ptr, _, _) = dsp.get_parameter_data(ffi::FMOD_DSP_FFT_SPECTRUMDATA, 0)?;
                 let fft = unsafe { *(ptr as *const ffi::FMOD_DSP_PARAMETER_FFT) };
-                DspParameterFft::try_from(fft)
+                Ok(DspParameterFft::from(fft))
             }
             _ => Err(Error::NotDspFft),
         }
@@ -5771,7 +5691,7 @@ impl TryFrom<ffi::FMOD_DSP_DESCRIPTION> for DspDescription {
                 read: value.read,
                 process: value.process,
                 setposition: value.setposition,
-                paramdesc: to_vec!(
+                paramdesc: try_to_vec!(
                     *value.paramdesc,
                     value.numparameters,
                     DspParameterDesc::try_from
@@ -6510,8 +6430,12 @@ impl Channel {
         unsafe {
             match ffi::FMOD_Channel_Set3DAttributes(
                 self.pointer,
-                pos.map(|value| &value.into() as *const _).unwrap_or(null()),
-                vel.map(|value| &value.into() as *const _).unwrap_or(null()),
+                pos.as_ref()
+                    .map(|value| value as *const _)
+                    .unwrap_or(null()),
+                vel.as_ref()
+                    .map(|value| value as *const _)
+                    .unwrap_or(null()),
             ) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Channel_Set3DAttributes", error)),
@@ -6523,7 +6447,7 @@ impl Channel {
             let mut pos = ffi::FMOD_VECTOR::default();
             let mut vel = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_Channel_Get3DAttributes(self.pointer, &mut pos, &mut vel) {
-                ffi::FMOD_OK => Ok((Vector::try_from(pos)?, Vector::try_from(vel)?)),
+                ffi::FMOD_OK => Ok((pos, vel)),
                 error => Err(err_fmod!("FMOD_Channel_Get3DAttributes", error)),
             }
         }
@@ -6584,9 +6508,9 @@ impl Channel {
             }
         }
     }
-    pub fn set_3d_cone_orientation(&self, orientation: Vector) -> Result<(), Error> {
+    pub fn set_3d_cone_orientation(&self, mut orientation: Vector) -> Result<(), Error> {
         unsafe {
-            match ffi::FMOD_Channel_Set3DConeOrientation(self.pointer, &mut orientation.into()) {
+            match ffi::FMOD_Channel_Set3DConeOrientation(self.pointer, &mut orientation) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Channel_Set3DConeOrientation", error)),
             }
@@ -6596,19 +6520,16 @@ impl Channel {
         unsafe {
             let mut orientation = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_Channel_Get3DConeOrientation(self.pointer, &mut orientation) {
-                ffi::FMOD_OK => Ok(Vector::try_from(orientation)?),
+                ffi::FMOD_OK => Ok(orientation),
                 error => Err(err_fmod!("FMOD_Channel_Get3DConeOrientation", error)),
             }
         }
     }
-    pub fn set_3d_custom_rolloff(&self, points: Vec<Vector>) -> Result<(), Error> {
+    pub fn set_3d_custom_rolloff(&self, points: &'static mut [Vector]) -> Result<(), Error> {
         unsafe {
             let numpoints = points.len() as i32;
-            match ffi::FMOD_Channel_Set3DCustomRolloff(
-                self.pointer,
-                vec_as_mut_ptr(points, |point| point.into()),
-                numpoints,
-            ) {
+            match ffi::FMOD_Channel_Set3DCustomRolloff(self.pointer, points.as_mut_ptr(), numpoints)
+            {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Channel_Set3DCustomRolloff", error)),
             }
@@ -6619,7 +6540,7 @@ impl Channel {
             let mut points = null_mut();
             let mut numpoints = i32::default();
             match ffi::FMOD_Channel_Get3DCustomRolloff(self.pointer, &mut points, &mut numpoints) {
-                ffi::FMOD_OK => Ok(to_vec!(points, numpoints, Vector::try_from)?),
+                ffi::FMOD_OK => Ok(to_vec!(points, numpoints)),
                 error => Err(err_fmod!("FMOD_Channel_Get3DCustomRolloff", error)),
             }
         }
@@ -7340,8 +7261,12 @@ impl ChannelGroup {
         unsafe {
             match ffi::FMOD_ChannelGroup_Set3DAttributes(
                 self.pointer,
-                pos.map(|value| &value.into() as *const _).unwrap_or(null()),
-                vel.map(|value| &value.into() as *const _).unwrap_or(null()),
+                pos.as_ref()
+                    .map(|value| value as *const _)
+                    .unwrap_or(null()),
+                vel.as_ref()
+                    .map(|value| value as *const _)
+                    .unwrap_or(null()),
             ) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_ChannelGroup_Set3DAttributes", error)),
@@ -7353,7 +7278,7 @@ impl ChannelGroup {
             let mut pos = ffi::FMOD_VECTOR::default();
             let mut vel = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_ChannelGroup_Get3DAttributes(self.pointer, &mut pos, &mut vel) {
-                ffi::FMOD_OK => Ok((Vector::try_from(pos)?, Vector::try_from(vel)?)),
+                ffi::FMOD_OK => Ok((pos, vel)),
                 error => Err(err_fmod!("FMOD_ChannelGroup_Get3DAttributes", error)),
             }
         }
@@ -7415,10 +7340,9 @@ impl ChannelGroup {
             }
         }
     }
-    pub fn set_3d_cone_orientation(&self, orientation: Vector) -> Result<(), Error> {
+    pub fn set_3d_cone_orientation(&self, mut orientation: Vector) -> Result<(), Error> {
         unsafe {
-            match ffi::FMOD_ChannelGroup_Set3DConeOrientation(self.pointer, &mut orientation.into())
-            {
+            match ffi::FMOD_ChannelGroup_Set3DConeOrientation(self.pointer, &mut orientation) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_ChannelGroup_Set3DConeOrientation", error)),
             }
@@ -7428,17 +7352,17 @@ impl ChannelGroup {
         unsafe {
             let mut orientation = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_ChannelGroup_Get3DConeOrientation(self.pointer, &mut orientation) {
-                ffi::FMOD_OK => Ok(Vector::try_from(orientation)?),
+                ffi::FMOD_OK => Ok(orientation),
                 error => Err(err_fmod!("FMOD_ChannelGroup_Get3DConeOrientation", error)),
             }
         }
     }
-    pub fn set_3d_custom_rolloff(&self, points: Vec<Vector>) -> Result<(), Error> {
+    pub fn set_3d_custom_rolloff(&self, points: &'static mut [Vector]) -> Result<(), Error> {
         unsafe {
             let numpoints = points.len() as i32;
             match ffi::FMOD_ChannelGroup_Set3DCustomRolloff(
                 self.pointer,
-                vec_as_mut_ptr(points, |point| point.into()),
+                points.as_mut_ptr(),
                 numpoints,
             ) {
                 ffi::FMOD_OK => Ok(()),
@@ -7455,7 +7379,7 @@ impl ChannelGroup {
                 &mut points,
                 &mut numpoints,
             ) {
-                ffi::FMOD_OK => Ok(to_vec!(points, numpoints, Vector::try_from)?),
+                ffi::FMOD_OK => Ok(to_vec!(points, numpoints)),
                 error => Err(err_fmod!("FMOD_ChannelGroup_Get3DCustomRolloff", error)),
             }
         }
@@ -8339,8 +8263,7 @@ impl Geometry {
         directocclusion: f32,
         reverbocclusion: f32,
         doublesided: bool,
-        numvertices: i32,
-        vertices: Vector,
+        vertices: Vec<Vector>,
     ) -> Result<i32, Error> {
         unsafe {
             let mut polygonindex = i32::default();
@@ -8349,8 +8272,8 @@ impl Geometry {
                 directocclusion,
                 reverbocclusion,
                 from_bool!(doublesided),
-                numvertices,
-                &vertices.into(),
+                vertices.len() as _,
+                vertices.as_ptr(),
                 &mut polygonindex,
             ) {
                 ffi::FMOD_OK => Ok(polygonindex),
@@ -8397,12 +8320,7 @@ impl Geometry {
         vertex: Vector,
     ) -> Result<(), Error> {
         unsafe {
-            match ffi::FMOD_Geometry_SetPolygonVertex(
-                self.pointer,
-                index,
-                vertexindex,
-                &vertex.into(),
-            ) {
+            match ffi::FMOD_Geometry_SetPolygonVertex(self.pointer, index, vertexindex, &vertex) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Geometry_SetPolygonVertex", error)),
             }
@@ -8413,7 +8331,7 @@ impl Geometry {
             let mut vertex = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_Geometry_GetPolygonVertex(self.pointer, index, vertexindex, &mut vertex)
             {
-                ffi::FMOD_OK => Ok(Vector::try_from(vertex)?),
+                ffi::FMOD_OK => Ok(vertex),
                 error => Err(err_fmod!("FMOD_Geometry_GetPolygonVertex", error)),
             }
         }
@@ -8477,9 +8395,10 @@ impl Geometry {
             match ffi::FMOD_Geometry_SetRotation(
                 self.pointer,
                 forward
-                    .map(|value| &value.into() as *const _)
+                    .as_ref()
+                    .map(|value| value as *const _)
                     .unwrap_or(null()),
-                up.map(|value| &value.into() as *const _).unwrap_or(null()),
+                up.as_ref().map(|value| value as *const _).unwrap_or(null()),
             ) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Geometry_SetRotation", error)),
@@ -8491,14 +8410,14 @@ impl Geometry {
             let mut forward = ffi::FMOD_VECTOR::default();
             let mut up = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_Geometry_GetRotation(self.pointer, &mut forward, &mut up) {
-                ffi::FMOD_OK => Ok((Vector::try_from(forward)?, Vector::try_from(up)?)),
+                ffi::FMOD_OK => Ok((forward, up)),
                 error => Err(err_fmod!("FMOD_Geometry_GetRotation", error)),
             }
         }
     }
     pub fn set_position(&self, position: Vector) -> Result<(), Error> {
         unsafe {
-            match ffi::FMOD_Geometry_SetPosition(self.pointer, &position.into()) {
+            match ffi::FMOD_Geometry_SetPosition(self.pointer, &position) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Geometry_SetPosition", error)),
             }
@@ -8508,14 +8427,14 @@ impl Geometry {
         unsafe {
             let mut position = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_Geometry_GetPosition(self.pointer, &mut position) {
-                ffi::FMOD_OK => Ok(Vector::try_from(position)?),
+                ffi::FMOD_OK => Ok(position),
                 error => Err(err_fmod!("FMOD_Geometry_GetPosition", error)),
             }
         }
     }
     pub fn set_scale(&self, scale: Vector) -> Result<(), Error> {
         unsafe {
-            match ffi::FMOD_Geometry_SetScale(self.pointer, &scale.into()) {
+            match ffi::FMOD_Geometry_SetScale(self.pointer, &scale) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Geometry_SetScale", error)),
             }
@@ -8525,7 +8444,7 @@ impl Geometry {
         unsafe {
             let mut scale = ffi::FMOD_VECTOR::default();
             match ffi::FMOD_Geometry_GetScale(self.pointer, &mut scale) {
-                ffi::FMOD_OK => Ok(Vector::try_from(scale)?),
+                ffi::FMOD_OK => Ok(scale),
                 error => Err(err_fmod!("FMOD_Geometry_GetScale", error)),
             }
         }
@@ -8607,7 +8526,8 @@ impl Reverb3d {
             match ffi::FMOD_Reverb3D_Set3DAttributes(
                 self.pointer,
                 position
-                    .map(|value| &value.into() as *const _)
+                    .as_ref()
+                    .map(|value| value as *const _)
                     .unwrap_or(null()),
                 mindistance,
                 maxdistance,
@@ -8628,7 +8548,7 @@ impl Reverb3d {
                 &mut mindistance,
                 &mut maxdistance,
             ) {
-                ffi::FMOD_OK => Ok((Vector::try_from(position)?, mindistance, maxdistance)),
+                ffi::FMOD_OK => Ok((position, mindistance, maxdistance)),
                 error => Err(err_fmod!("FMOD_Reverb3D_Get3DAttributes", error)),
             }
         }
@@ -8825,14 +8745,10 @@ impl Sound {
             }
         }
     }
-    pub fn set_3d_custom_rolloff(&self, points: Vec<Vector>) -> Result<(), Error> {
+    pub fn set_3d_custom_rolloff(&self, points: &'static mut [Vector]) -> Result<(), Error> {
         unsafe {
             let numpoints = points.len() as i32;
-            match ffi::FMOD_Sound_Set3DCustomRolloff(
-                self.pointer,
-                vec_as_mut_ptr(points, |point| point.into()),
-                numpoints,
-            ) {
+            match ffi::FMOD_Sound_Set3DCustomRolloff(self.pointer, points.as_mut_ptr(), numpoints) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_Sound_Set3DCustomRolloff", error)),
             }
@@ -8843,7 +8759,7 @@ impl Sound {
             let mut points = null_mut();
             let mut numpoints = i32::default();
             match ffi::FMOD_Sound_Get3DCustomRolloff(self.pointer, &mut points, &mut numpoints) {
-                ffi::FMOD_OK => Ok(to_vec!(points, numpoints, Vector::try_from)?),
+                ffi::FMOD_OK => Ok(to_vec!(points, numpoints)),
                 error => Err(err_fmod!("FMOD_Sound_Get3DCustomRolloff", error)),
             }
         }
@@ -10566,7 +10482,7 @@ impl EventInstance {
         unsafe {
             let mut attributes = ffi::FMOD_3D_ATTRIBUTES::default();
             match ffi::FMOD_Studio_EventInstance_Get3DAttributes(self.pointer, &mut attributes) {
-                ffi::FMOD_OK => Ok(Attributes3d::try_from(attributes)?),
+                ffi::FMOD_OK => Ok(attributes),
                 error => Err(err_fmod!(
                     "FMOD_Studio_EventInstance_Get3DAttributes",
                     error
@@ -10574,12 +10490,9 @@ impl EventInstance {
             }
         }
     }
-    pub fn set_3d_attributes(&self, attributes: Attributes3d) -> Result<(), Error> {
+    pub fn set_3d_attributes(&self, mut attributes: Attributes3d) -> Result<(), Error> {
         unsafe {
-            match ffi::FMOD_Studio_EventInstance_Set3DAttributes(
-                self.pointer,
-                &mut attributes.into(),
-            ) {
+            match ffi::FMOD_Studio_EventInstance_Set3DAttributes(self.pointer, &mut attributes) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!(
                     "FMOD_Studio_EventInstance_Set3DAttributes",
@@ -11440,10 +11353,7 @@ impl Studio {
                 &mut attributes,
                 &mut attenuationposition,
             ) {
-                ffi::FMOD_OK => Ok((
-                    Attributes3d::try_from(attributes)?,
-                    Vector::try_from(attenuationposition)?,
-                )),
+                ffi::FMOD_OK => Ok((attributes, attenuationposition)),
                 error => Err(err_fmod!("FMOD_Studio_System_GetListenerAttributes", error)),
             }
         }
@@ -11458,9 +11368,10 @@ impl Studio {
             match ffi::FMOD_Studio_System_SetListenerAttributes(
                 self.pointer,
                 index,
-                &attributes.into(),
+                &attributes,
                 attenuationposition
-                    .map(|value| &value.into() as *const _)
+                    .as_ref()
+                    .map(|value| value as *const _)
                     .unwrap_or(null()),
             ) {
                 ffi::FMOD_OK => Ok(()),
@@ -12221,6 +12132,8 @@ impl System {
     pub fn get_dsp_info_by_plugin(&self, handle: u32) -> Result<DspDescription, Error> {
         unsafe {
             let mut description = null();
+            // The FFI uses wrong mutability here
+            #[allow(clippy::unnecessary_mut_passed)]
             match ffi::FMOD_System_GetDSPInfoByPlugin(self.pointer, handle, &mut description) {
                 ffi::FMOD_OK => Ok(DspDescription::try_from(*description)?),
                 error => Err(err_fmod!("FMOD_System_GetDSPInfoByPlugin", error)),
@@ -12427,12 +12340,17 @@ impl System {
             match ffi::FMOD_System_Set3DListenerAttributes(
                 self.pointer,
                 listener,
-                pos.map(|value| &value.into() as *const _).unwrap_or(null()),
-                vel.map(|value| &value.into() as *const _).unwrap_or(null()),
-                forward
-                    .map(|value| &value.into() as *const _)
+                pos.as_ref()
+                    .map(|value| value as *const _)
                     .unwrap_or(null()),
-                up.map(|value| &value.into() as *const _).unwrap_or(null()),
+                vel.as_ref()
+                    .map(|value| value as *const _)
+                    .unwrap_or(null()),
+                forward
+                    .as_ref()
+                    .map(|value| value as *const _)
+                    .unwrap_or(null()),
+                up.as_ref().map(|value| value as *const _).unwrap_or(null()),
             ) {
                 ffi::FMOD_OK => Ok(()),
                 error => Err(err_fmod!("FMOD_System_Set3DListenerAttributes", error)),
@@ -12456,12 +12374,7 @@ impl System {
                 &mut forward,
                 &mut up,
             ) {
-                ffi::FMOD_OK => Ok((
-                    Vector::try_from(pos)?,
-                    Vector::try_from(vel)?,
-                    Vector::try_from(forward)?,
-                    Vector::try_from(up)?,
-                )),
+                ffi::FMOD_OK => Ok((pos, vel, forward, up)),
                 error => Err(err_fmod!("FMOD_System_Get3DListenerAttributes", error)),
             }
         }
@@ -12734,6 +12647,8 @@ impl System {
     pub fn get_dsp_info_by_type(&self, type_: DspType) -> Result<DspDescription, Error> {
         unsafe {
             let mut description = null();
+            // The FFI uses wrong mutability here
+            #[allow(clippy::unnecessary_mut_passed)]
             match ffi::FMOD_System_GetDSPInfoByType(self.pointer, type_.into(), &mut description) {
                 ffi::FMOD_OK => Ok(DspDescription::try_from(*description)?),
                 error => Err(err_fmod!("FMOD_System_GetDSPInfoByType", error)),
@@ -12966,8 +12881,8 @@ impl System {
             let mut reverb = f32::default();
             match ffi::FMOD_System_GetGeometryOcclusion(
                 self.pointer,
-                &listener.into(),
-                &source.into(),
+                &listener,
+                &source,
                 &mut direct,
                 &mut reverb,
             ) {

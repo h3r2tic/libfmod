@@ -1,7 +1,12 @@
 use std::ffi::c_void;
 
-use libfmod::{AdvancedSettings, DspResampler, Error, ffi, OpenState, Studio, StudioAdvancedSettings, System};
-use libfmod::ffi::{FMOD_DEFAULT, FMOD_INIT_NORMAL, FMOD_NONBLOCKING, FMOD_RESULT, FMOD_STUDIO_INIT_NORMAL, FMOD_SYSTEM_CALLBACK_PREUPDATE};
+use libfmod::ffi::{
+    FMOD_DEFAULT, FMOD_INIT_NORMAL, FMOD_NONBLOCKING, FMOD_RESULT, FMOD_STUDIO_INIT_NORMAL,
+    FMOD_SYSTEM_CALLBACK_PREUPDATE,
+};
+use libfmod::{
+    ffi, AdvancedSettings, DspResampler, Error, OpenState, Studio, StudioAdvancedSettings, System,
+};
 
 #[test]
 fn test_core_system_initialization() -> Result<(), Error> {
@@ -149,8 +154,8 @@ fn test_background_loading() -> Result<(), Error> {
     let (state, filled, starving, busy) = sound.get_open_state()?;
     assert_eq!(state, OpenState::Loading);
     assert_eq!(filled, 0);
-    assert_eq!(starving, false);
-    assert_eq!(busy, false);
+    assert!(!starving);
+    assert!(!busy);
     system.release()
 }
 
@@ -165,7 +170,12 @@ fn test_system_pre_update_callback() -> Result<(), Error> {
         _commanddata2: *mut c_void,
         _userdata: *mut c_void,
     ) -> FMOD_RESULT {
-        println!("system {} callback {} {}", system as usize, type_, type_ == FMOD_SYSTEM_CALLBACK_PREUPDATE);
+        println!(
+            "system {} callback {} {}",
+            system as usize,
+            type_,
+            type_ == FMOD_SYSTEM_CALLBACK_PREUPDATE
+        );
         ffi::FMOD_OK
     }
     system.set_callback(Some(callback), FMOD_SYSTEM_CALLBACK_PREUPDATE)?;
